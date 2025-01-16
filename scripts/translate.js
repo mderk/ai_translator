@@ -238,7 +238,9 @@ async function translateProject() {
         // Determine which languages to process
         const targetLanguages = targetLang
             ? [targetLang]
-            : currentState.config.languages;
+            : currentState.config.languages.filter(
+                  (lang) => lang !== currentState.config.baseLanguage
+              );
 
         // Validate target languages
         for (const lang of targetLanguages) {
