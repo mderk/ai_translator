@@ -1,5 +1,27 @@
 # Translator Project
 
+A tool for managing and automating translations using DeepL API.
+
+## Installation
+
+1. Clone the repository:
+
+```bash
+git clone <repository-url>
+cd translator
+```
+
+2. Install dependencies:
+
+```bash
+yarn install
+```
+
+3. Set up DeepLX:
+    - Install and run DeepLX (https://deeplx.owo.network/) API server
+    - By default, the translator expects the API to be running at `http://localhost:1188`
+    - You can specify a different API endpoint using the `--api` option when translating
+
 ## Commands
 
 ### start-project
