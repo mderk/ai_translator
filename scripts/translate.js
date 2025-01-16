@@ -272,11 +272,10 @@ async function translateProject() {
                 if (record[lang]) {
                     continue;
                 }
-                const key = record[currentState.config.keyColumn];
                 const sourceText = record[currentState.config.baseLanguage];
 
-                if (!currentState.progress[key]) {
-                    console.log(`\nTranslating key "${key}"`);
+                if (!currentState.progress[sourceText]) {
+                    console.log(`\nTranslating: ${sourceText}`);
                     try {
                         const translation = await translateText(
                             sourceText,
@@ -284,7 +283,7 @@ async function translateProject() {
                             lang,
                             argv.api
                         );
-                        currentState.progress[key] = translation;
+                        currentState.progress[sourceText] = translation;
                         record[lang] = translation;
 
                         // Save progress after each successful translation
@@ -297,12 +296,12 @@ async function translateProject() {
                         await sleep(1000);
                     } catch (error) {
                         console.error(
-                            `Error translating key "${key}":`,
+                            `Error translating text "${sourceText}":`,
                             error.message
                         );
                     }
                 } else {
-                    record[lang] = currentState.progress[key];
+                    record[lang] = currentState.progress[sourceText];
                 }
             }
 
