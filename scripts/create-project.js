@@ -82,8 +82,8 @@ async function createProject() {
         }
 
         // Get language codes from CSV headers, excluding the key column
-        const languages = Object.keys(records[0]).filter(
-            (col) => col !== keyColumn
+        const languages = Object.keys(records[0]).filter((col) =>
+            baseLang !== keyColumn ? col !== keyColumn : true
         );
 
         // Validate base language exists in CSV
