@@ -8,6 +8,8 @@ const { hideBin } = require("yargs/helpers");
 // Default API endpoint
 const DEFAULT_API_ENDPOINT = "http://localhost:1188";
 const MAX_RETRIES = 10;
+const DEFAULT_DELAY = 1000;
+const PRO_DELAY = 500;
 const RETRY_DELAYS = {
     429: 5000, // Rate limit - wait 5 seconds
     500: 10000, // Server error - wait 10 seconds
@@ -24,27 +26,51 @@ let currentState = {
     csvPath: null,
 };
 
-// Placeholder handling
-const PLACEHOLDER_PREFIX = "!!!!<";
-const PLACEHOLDER_SUFFIX = ">!!!!";
+// Helper function to escape special characters in regex
+function escapeRegExp(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const PLACEHOLDER_PREFIX = "🃟";
+const PLACEHOLDER_SUFFIX = "🃟";
+const CHAR_SEPARATOR = "❤️";
 const PLACEHOLDER_REGEX = /\{([^}]+)\}/g;
+const NEW_LINE_REPLACEMENT = " ⏎ ";
+const NEW_LINE_REGEX = /\\n|\n/g;
 
 // Function to replace placeholders with special markers
 function maskPlaceholders(text) {
     const placeholders = [];
     const maskedText = text.replace(PLACEHOLDER_REGEX, (match, param) => {
         placeholders.push(param);
-        return `${PLACEHOLDER_PREFIX}${param}${PLACEHOLDER_SUFFIX}`;
+        return `${PLACEHOLDER_PREFIX}${param
+            .split("")
+            .join(CHAR_SEPARATOR)}${PLACEHOLDER_SUFFIX}`;
     });
     return { maskedText, placeholders };
 }
 
 // Function to restore placeholders from special markers
 function unmaskPlaceholders(text) {
+    const escapedPrefix = escapeRegExp(PLACEHOLDER_PREFIX);
+    const escapedSuffix = escapeRegExp(PLACEHOLDER_SUFFIX);
     return text.replace(
-        new RegExp(`${PLACEHOLDER_PREFIX}([^>]+)${PLACEHOLDER_SUFFIX}`, "g"),
-        "{$1}"
+        new RegExp(
+            `${escapedPrefix}([^${escapedPrefix}${escapedSuffix}]+)${escapedSuffix}`,
+            "g"
+        ),
+        (match, param) => `{${param.split(CHAR_SEPARATOR).join("")}}`
     );
+}
+
+// Function to replace newlines with special markers
+function replaceNewlines(text) {
+    return text.replace(NEW_LINE_REGEX, NEW_LINE_REPLACEMENT);
+}
+
+// Function to restore newlines from special markers
+function restoreNewlines(text) {
+    return text.replace(new RegExp(NEW_LINE_REPLACEMENT, "g"), "\n");
 }
 
 // Sleep function
@@ -61,24 +87,32 @@ async function translateText(
     sourceLang,
     targetLang,
     apiEndpoint,
+    pro = false,
     retryCount = 0
 ) {
     try {
+        // Replace newlines with special markers
+        const textWithReplacedNewlines = replaceNewlines(text);
+
         // Mask placeholders before translation
-        const { maskedText, placeholders } = maskPlaceholders(text);
+        const { maskedText, placeholders } = maskPlaceholders(
+            textWithReplacedNewlines
+        );
 
         if (placeholders.length > 0) {
             console.log(`Found placeholders: ${placeholders.join(", ")}`);
         }
 
-        const response = await axios.post(`${apiEndpoint}/translate`, {
+        const endpoint = pro ? "/v1/translate" : "/translate";
+        const response = await axios.post(`${apiEndpoint}${endpoint}`, {
             text: maskedText,
             source_lang: sourceLang.toUpperCase(),
             target_lang: targetLang.toUpperCase(),
         });
 
-        // Unmask placeholders in the translated text
-        const translatedText = unmaskPlaceholders(response.data.data);
+        // First restore newlines, then unmask placeholders
+        const restoredText = restoreNewlines(response.data.data);
+        const translatedText = unmaskPlaceholders(restoredText);
         return translatedText;
     } catch (error) {
         const status = error.response?.status || 500;
@@ -105,6 +139,7 @@ async function translateText(
             sourceLang,
             targetLang,
             apiEndpoint,
+            pro,
             retryCount + 1
         );
     }
@@ -173,6 +208,108 @@ async function saveCurrentProgress() {
     }
 }
 
+// Constants for batch processing
+const MAX_BATCH_SIZE = 30;
+const MAX_TEXT_LENGTH = 100;
+
+// Function to check if text is suitable for batch processing
+function isTextSuitableForBatch(text) {
+    return !text.includes("\n") && text.length <= MAX_TEXT_LENGTH;
+}
+
+// Function to process texts in batches
+async function translateBatch(texts, sourceLang, targetLang, apiEndpoint) {
+    // Join texts with newlines
+    const batchText = texts.join("\n");
+
+    // Use translateText for the batch
+    const translatedBatch = await translateText(
+        batchText,
+        sourceLang,
+        targetLang,
+        apiEndpoint
+    );
+
+    // Split the result back into individual translations
+    return translatedBatch.split("\n");
+}
+
+// Function to process all short texts in batches
+async function processBatchTranslations(records, lang, apiEndpoint, pro) {
+    console.log("\nProcessing short phrases in batches...");
+
+    // Collect all untranslated short texts
+    const shortTexts = [];
+    const seenTexts = new Set();
+
+    for (const record of records) {
+        if (record[lang]) continue;
+
+        const sourceText = record[currentState.config.baseLanguage];
+        if (
+            !currentState.progress[sourceText] &&
+            isTextSuitableForBatch(sourceText) &&
+            !seenTexts.has(sourceText) // Check for case-insensitive duplicates
+        ) {
+            shortTexts.push(sourceText);
+            seenTexts.add(sourceText); // Add lowercase version to seen set
+        }
+    }
+
+    if (shortTexts.length === 0) {
+        console.log("No short phrases to process in batches.");
+        return;
+    }
+
+    console.log(
+        `Found ${shortTexts.length} unique short phrases for batch processing.`
+    );
+
+    // Process texts in batches
+    for (let i = 0; i < shortTexts.length; i += MAX_BATCH_SIZE) {
+        const batch = shortTexts.slice(i, i + MAX_BATCH_SIZE);
+        console.log(
+            `\nTranslating batch ${i / MAX_BATCH_SIZE + 1} (${
+                batch.length
+            } phrases)...`
+        );
+
+        try {
+            const translations = await translateBatch(
+                batch,
+                currentState.config.baseLanguage,
+                lang,
+                apiEndpoint
+            );
+
+            // Save translations
+            for (let j = 0; j < batch.length; j++) {
+                const sourceText = batch[j];
+                const translation = translations[j];
+                currentState.progress[sourceText] = translation;
+            }
+
+            // Save progress after each batch
+            await saveProgressFile(
+                currentState.progressPath,
+                currentState.progress
+            );
+
+            // Wait before next batch
+            if (i + MAX_BATCH_SIZE < shortTexts.length) {
+                await sleep(pro ? PRO_DELAY : DEFAULT_DELAY);
+            }
+        } catch (error) {
+            console.error(`Error translating batch: ${error.message}`);
+            // Continue with next batch
+            continue;
+        }
+    }
+
+    console.log("Batch processing completed.");
+    await saveCurrentProgress();
+}
+
 async function translateProject() {
     const argv = yargs(hideBin(process.argv))
         .usage("Usage: $0 [project] [lang] [options]")
@@ -191,6 +328,11 @@ async function translateProject() {
             description: "API endpoint",
             type: "string",
             default: DEFAULT_API_ENDPOINT,
+        })
+        .option("pro", {
+            description: "Use pro API endpoint",
+            type: "boolean",
+            default: false,
         })
         .help()
         .alias("help", "h")
@@ -267,7 +409,15 @@ async function translateProject() {
                 currentState.progressPath
             );
 
-            // Process each record
+            // First pass: Process short phrases in batches
+            await processBatchTranslations(
+                currentState.records,
+                lang,
+                argv.api,
+                argv.pro
+            );
+
+            // Second pass: Process remaining texts
             for (const record of currentState.records) {
                 if (record[lang]) {
                     continue;
@@ -281,7 +431,8 @@ async function translateProject() {
                             sourceText,
                             currentState.config.baseLanguage,
                             lang,
-                            argv.api
+                            argv.api,
+                            argv.pro
                         );
                         currentState.progress[sourceText] = translation;
                         record[lang] = translation;
@@ -293,7 +444,7 @@ async function translateProject() {
                         );
 
                         // Wait before next request
-                        await sleep(1000);
+                        await sleep(argv.pro ? PRO_DELAY : DEFAULT_DELAY);
                     } catch (error) {
                         console.error(
                             `Error translating text "${sourceText}":`,
