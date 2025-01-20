@@ -35,7 +35,7 @@ const PLACEHOLDER_PREFIX = "🃟";
 const PLACEHOLDER_SUFFIX = "🃟";
 const CHAR_SEPARATOR = "❤️";
 const PLACEHOLDER_REGEX = /\{([^}]+)\}/g;
-const NEW_LINE_REPLACEMENT = " ⏎ ";
+const NEW_LINE_REPLACEMENT = "⏎";
 const NEW_LINE_REGEX = /\\n|\n/g;
 
 // Function to replace placeholders with special markers
@@ -65,12 +65,15 @@ function unmaskPlaceholders(text) {
 
 // Function to replace newlines with special markers
 function replaceNewlines(text) {
-    return text.replace(NEW_LINE_REGEX, NEW_LINE_REPLACEMENT);
+    return text.replace(NEW_LINE_REGEX, ` ${NEW_LINE_REPLACEMENT} `);
 }
 
 // Function to restore newlines from special markers
 function restoreNewlines(text) {
-    return text.replace(new RegExp(NEW_LINE_REPLACEMENT, "g"), "\n");
+    return text.replace(
+        new RegExp(`\\s*${NEW_LINE_REPLACEMENT}\\s*`, "g"),
+        "\n"
+    );
 }
 
 // Sleep function
@@ -231,7 +234,18 @@ async function translateBatch(texts, sourceLang, targetLang, apiEndpoint) {
     );
 
     // Split the result back into individual translations
-    return translatedBatch.split("\n");
+    const translated = translatedBatch.split("\n");
+    for (let i = 0; i < translated.length; i++) {
+        translated[i] = translated[i].trim();
+        if (
+            texts[i][0] === texts[i][0].toUpperCase() &&
+            translated[i][0] !== translated[i][0].toUpperCase()
+        ) {
+            translated[i] =
+                translated[i][0].toUpperCase() + translated[i].slice(1);
+        }
+    }
+    return translated;
 }
 
 // Function to process all short texts in batches
