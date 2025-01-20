@@ -8,8 +8,8 @@ const { hideBin } = require("yargs/helpers");
 // Default API endpoint
 const DEFAULT_API_ENDPOINT = "http://localhost:1188";
 const MAX_RETRIES = 10;
-const DEFAULT_DELAY = 1000;
-const PRO_DELAY = 500;
+const DEFAULT_DELAY = 700;
+const PRO_DELAY = 300;
 const RETRY_DELAYS = {
     429: 5000, // Rate limit - wait 5 seconds
     500: 10000, // Server error - wait 10 seconds
@@ -81,6 +81,10 @@ function getRetryDelay(status) {
     return RETRY_DELAYS[status] || 5000; // Default to 5 seconds
 }
 
+async function wait(ms) {
+    return await sleep(ms + Math.random() * 1000);
+}
+
 // Translate text using DeepLX API with retries
 async function translateText(
     text,
@@ -127,13 +131,9 @@ async function translateText(
         }
 
         console.log(`\nTranslation error (${status}): ${error.message}`);
-        console.log(
-            `Retry ${retryCount + 1}/${MAX_RETRIES} in ${
-                delay / 1000
-            } seconds...`
-        );
+        console.log(`Waiting for retry ${retryCount + 1}/${MAX_RETRIES}...`);
 
-        await sleep(delay);
+        await wait(delay);
         return translateText(
             text,
             sourceLang,
@@ -296,9 +296,7 @@ async function processBatchTranslations(records, lang, apiEndpoint, pro) {
             );
 
             // Wait before next batch
-            if (i + MAX_BATCH_SIZE < shortTexts.length) {
-                await sleep(pro ? PRO_DELAY : DEFAULT_DELAY);
-            }
+            await wait(pro ? PRO_DELAY : DEFAULT_DELAY);
         } catch (error) {
             console.error(`Error translating batch: ${error.message}`);
             // Continue with next batch
@@ -343,8 +341,9 @@ async function translateProject() {
 
     // Handle positional arguments
     const [projectArg, langArg] = argv._;
-    const projectName = argv.project || projectArg;
-    const targetLang = argv.lang || langArg;
+    const { project, lang, api, pro } = argv;
+    const projectName = project || projectArg;
+    const targetLang = lang || langArg;
 
     if (!projectName) {
         console.error("Project name is required");
@@ -413,8 +412,8 @@ async function translateProject() {
             await processBatchTranslations(
                 currentState.records,
                 lang,
-                argv.api,
-                argv.pro
+                api,
+                pro
             );
 
             // Second pass: Process remaining texts
@@ -431,8 +430,8 @@ async function translateProject() {
                             sourceText,
                             currentState.config.baseLanguage,
                             lang,
-                            argv.api,
-                            argv.pro
+                            api,
+                            pro
                         );
                         currentState.progress[sourceText] = translation;
                         record[lang] = translation;
@@ -444,7 +443,7 @@ async function translateProject() {
                         );
 
                         // Wait before next request
-                        await sleep(argv.pro ? PRO_DELAY : DEFAULT_DELAY);
+                        await wait(pro ? PRO_DELAY : DEFAULT_DELAY);
                     } catch (error) {
                         console.error(
                             `Error translating text "${sourceText}":`,
