@@ -97,6 +97,10 @@ async function translateText(
     pro = false,
     retryCount = 0
 ) {
+    if (!text) {
+        console.log("No text to translate");
+        return text;
+    }
     try {
         // Replace newlines with special markers
         //const textWithReplacedNewlines = replaceNewlines(text);
@@ -265,9 +269,21 @@ async function translateBatch(texts, sourceLang, targetLang, apiEndpoint) {
             }
         } catch (error) {
             console.error(`Error translating batch: ${error.message}`);
-            console.error(texts[i], translated[i]);
-            console.error(texts, translated);
-            console.error(batchText, translatedBatch);
+            console.error(
+                "======================= Current text ========================"
+            );
+            console.error(texts[i]);
+            console.error(translated[i]);
+            console.error(
+                "======================= Arrays ========================"
+            );
+            console.error(texts);
+            console.error(translated);
+            console.error(
+                "======================= Batch text ========================"
+            );
+            console.error(batchText);
+            console.error(translatedBatch);
             process.exit(1);
         }
     }
@@ -287,6 +303,7 @@ async function processBatchTranslations(records, lang, apiEndpoint, pro) {
 
         const sourceText = record[currentState.config.baseLanguage];
         if (
+            sourceText &&
             !currentState.progress[sourceText] &&
             isTextSuitableForBatch(sourceText) &&
             !seenTexts.has(sourceText) // Check for case-insensitive duplicates
