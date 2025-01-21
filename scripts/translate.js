@@ -99,18 +99,17 @@ async function translateText(
 ) {
     try {
         // Replace newlines with special markers
-        const textWithReplacedNewlines = replaceNewlines(text);
+        //const textWithReplacedNewlines = replaceNewlines(text);
 
         // Mask placeholders before translation
-        const { maskedText, placeholders } = maskPlaceholders(
-            textWithReplacedNewlines
-        );
+        const { maskedText, placeholders } = maskPlaceholders(text);
 
         if (placeholders.length > 0) {
             console.log(`Found placeholders: ${placeholders.join(", ")}`);
         }
 
         const endpoint = pro ? "/v1/translate" : "/translate";
+        console.log("Posting to", `${apiEndpoint}${endpoint}`);
         const response = await axios.post(`${apiEndpoint}${endpoint}`, {
             text: maskedText,
             source_lang: sourceLang.toUpperCase(),
@@ -118,8 +117,10 @@ async function translateText(
         });
 
         // First restore newlines, then unmask placeholders
-        const restoredText = restoreNewlines(response.data.data);
-        const translatedText = unmaskPlaceholders(restoredText);
+        //const restoredText = restoreNewlines(response.data.data);
+        const translatedText = unmaskPlaceholders(response.data.data);
+        //console.log(text, translatedText);
+        console.log(`Got response (${response.data.data.length} characters):`);
         return translatedText;
     } catch (error) {
         const status = error.response?.status || 500;
@@ -178,6 +179,7 @@ async function saveCurrentProgress() {
         !currentState.config ||
         !currentState.csvPath
     ) {
+        console.log("No current state to save");
         return;
     }
 
@@ -188,9 +190,21 @@ async function saveCurrentProgress() {
                 currentState.progressPath,
                 currentState.progress
             );
+            console.log(`Progress saved to ${currentState.progressPath}`);
         }
 
-        // Save CSV
+        // Update records with progress data
+        if (currentState.currentLang) {
+            for (const record of currentState.records) {
+                const sourceText = record[currentState.config.baseLanguage];
+                if (currentState.progress[sourceText]) {
+                    record[currentState.currentLang] =
+                        currentState.progress[sourceText];
+                }
+            }
+        }
+
+        // Save CSV with all current translations
         const csvOutput = currentState.records.map((record) => {
             const row = {};
             row[currentState.config.keyColumn] =
@@ -203,11 +217,15 @@ async function saveCurrentProgress() {
 
         const stringify = require("csv-stringify/sync").stringify;
         const outputCsv = stringify(csvOutput, { header: true });
-        await fs.writeFile(currentState.csvPath, outputCsv);
 
-        console.log("Progress and CSV saved successfully");
+        console.log(`Saving CSV to ${currentState.csvPath}`);
+        console.log(`CSV contains ${csvOutput.length} records`);
+
+        await fs.writeFile(currentState.csvPath, outputCsv);
+        console.log("CSV file saved successfully");
     } catch (error) {
         console.error("Error saving progress:", error);
+        throw error; // Re-throw to handle in the caller
     }
 }
 
@@ -236,13 +254,21 @@ async function translateBatch(texts, sourceLang, targetLang, apiEndpoint) {
     // Split the result back into individual translations
     const translated = translatedBatch.split("\n");
     for (let i = 0; i < translated.length; i++) {
-        translated[i] = translated[i].trim();
-        if (
-            texts[i][0] === texts[i][0].toUpperCase() &&
-            translated[i][0] !== translated[i][0].toUpperCase()
-        ) {
-            translated[i] =
-                translated[i][0].toUpperCase() + translated[i].slice(1);
+        try {
+            translated[i] = translated[i].trim();
+            if (
+                texts[i][0] === texts[i][0].toUpperCase() &&
+                translated[i][0] !== translated[i][0].toUpperCase()
+            ) {
+                translated[i] =
+                    translated[i][0].toUpperCase() + translated[i].slice(1);
+            }
+        } catch (error) {
+            console.error(`Error translating batch: ${error.message}`);
+            console.error(texts[i], translated[i]);
+            console.error(texts, translated);
+            console.error(batchText, translatedBatch);
+            process.exit(1);
         }
     }
     return translated;
@@ -313,8 +339,7 @@ async function processBatchTranslations(records, lang, apiEndpoint, pro) {
             await wait(pro ? PRO_DELAY : DEFAULT_DELAY);
         } catch (error) {
             console.error(`Error translating batch: ${error.message}`);
-            // Continue with next batch
-            continue;
+            process.exit(1);
         }
     }
 
@@ -484,30 +509,55 @@ async function translateProject() {
     }
 }
 
+// Add graceful shutdown helper
+async function gracefulShutdown(exitCode = 0) {
+    console.log("\nInitiating graceful shutdown...");
+    try {
+        // Force sync of current language progress if available
+        if (currentState.currentLang && currentState.progress) {
+            console.log(`Syncing progress for ${currentState.currentLang}`);
+            for (const record of currentState.records) {
+                const sourceText = record[currentState.config.baseLanguage];
+                if (currentState.progress[sourceText]) {
+                    record[currentState.currentLang] =
+                        currentState.progress[sourceText];
+                }
+            }
+        }
+
+        await saveCurrentProgress();
+        console.log("All progress saved successfully.");
+        // Give more time for file operations to complete
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        process.exit(exitCode);
+    } catch (error) {
+        console.error("Error during graceful shutdown:", error);
+        // Force exit after error
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        process.exit(1);
+    }
+}
+
 // Handle script interruption
-process.on("SIGINT", async () => {
-    console.log("\nProcess interrupted. Saving progress...");
-    await saveCurrentProgress();
-    process.exit();
+process.on("SIGINT", () => {
+    console.log("\nProcess interrupted.");
+    gracefulShutdown(0);
 });
 
 // Handle other termination signals
-process.on("SIGTERM", async () => {
-    console.log("\nProcess terminated. Saving progress...");
-    await saveCurrentProgress();
-    process.exit();
+process.on("SIGTERM", () => {
+    console.log("\nProcess terminated.");
+    gracefulShutdown(0);
 });
 
 // Handle uncaught exceptions
 process.on("uncaughtException", async (error) => {
     console.error("\nUncaught error:", error);
-    await saveCurrentProgress();
-    process.exit(1);
+    gracefulShutdown(1);
 });
 
 // Start processing
-translateProject().catch(async (error) => {
+translateProject().catch((error) => {
     console.error("\nUnhandled error:", error);
-    await saveCurrentProgress();
-    process.exit(1);
+    gracefulShutdown(1);
 });
