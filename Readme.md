@@ -1,6 +1,15 @@
-# Translator Project
+# Translation Project Manager
 
-A tool for managing and automating translations using DeepL API.
+A tool for managing translation projects using DeepLX API.
+
+## Features
+
+-   Batch translation of short phrases for better performance
+-   Progress tracking and resumable translations
+-   Support for placeholders in text (e.g. {name}, {count})
+-   Automatic case preservation
+-   Graceful shutdown with progress saving
+-   Support for both regular and Pro DeepLX API endpoints
 
 ## Installation
 
@@ -21,6 +30,116 @@ yarn install
     - Install and run DeepLX (https://deeplx.owo.network/) API server
     - By default, the translator expects the API to be running at `http://localhost:1188`
     - You can specify a different API endpoint using the `--api` option when translating
+
+## Usage
+
+```bash
+node scripts/translate.js [project] [lang] [options]
+```
+
+### Arguments
+
+-   `project`: Project name (required)
+-   `lang`: Target language code (optional, if not specified all languages will be processed)
+
+### Options
+
+-   `-p, --project`: Project name (alternative to positional argument)
+-   `-l, --lang`: Target language code (alternative to positional argument)
+-   `-a, --api`: API endpoint (default: http://localhost:1188)
+-   `--pro`: Use pro API endpoint (default: false)
+-   `--skip-batch`: Skip batch processing of short phrases (default: false)
+-   `--batch-size`: Number of phrases to process in one batch (default: 30)
+-   `--batch-max-text-length`: Maximum text length for batch processing (default: 100)
+-   `--rebuild`: Rebuild translations based on progress files (default: false)
+
+### Examples
+
+```bash
+# Translate myproject to French
+node scripts/translate.js myproject fr
+
+# Translate myproject to all configured languages
+node scripts/translate.js myproject
+
+# Same using named arguments
+node scripts/translate.js -p myproject -l fr
+
+# Use custom API endpoint
+node scripts/translate.js myproject fr -a http://my-deeplx-server:1188
+
+# Use pro endpoint
+node scripts/translate.js myproject fr --pro
+```
+
+## Project Structure
+
+```
+data/
+  projects/
+    myproject/
+      config.json      # Project configuration
+      translations.csv # Source file with translations
+      fr/             # Language-specific directory
+        progress.json # Translation progress for French
+      de/
+        progress.json # Translation progress for German
+      ...
+```
+
+### Project Configuration (config.json)
+
+```json
+{
+    "sourceFile": "translations.csv",
+    "keyColumn": "key",
+    "baseLanguage": "en",
+    "languages": ["en", "fr", "de", "es", "it"]
+}
+```
+
+### CSV Format
+
+The CSV file should have columns for each language and a key column:
+
+```csv
+key,en,fr,de
+welcome,"Welcome!","Bienvenue!","Willkommen!"
+hello,"Hello {name}","Bonjour {name}","Hallo {name}"
+```
+
+## Features in Detail
+
+### Batch Processing
+
+Short phrases (less than 100 characters by default) are processed in batches for better performance. The tool automatically:
+
+-   Groups suitable phrases together
+-   Preserves original text case
+-   Handles placeholders correctly
+-   Saves progress after each batch
+
+### Progress Tracking
+
+-   Progress is saved after each translation
+-   Interrupted translations can be resumed
+-   Each language has its own progress file
+-   CSV file is updated with all translations
+
+### Graceful Shutdown
+
+When the process is interrupted (Ctrl+C):
+
+1. Current progress is saved
+2. CSV file is updated
+3. All file operations are completed before exit
+
+### Error Handling
+
+-   Automatic retries for API errors
+-   Different retry delays based on error type
+-   Progress is saved even on errors
+-   Detailed error logging
 
 ## Commands
 
