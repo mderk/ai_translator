@@ -238,8 +238,8 @@ const MAX_BATCH_SIZE = 30;
 const MAX_TEXT_LENGTH = 100;
 
 // Function to check if text is suitable for batch processing
-function isTextSuitableForBatch(text) {
-    return !text.includes("\n") && text.length <= MAX_TEXT_LENGTH;
+function isTextSuitableForBatch(text, maxTextLength) {
+    return !text.includes("\n") && text.length <= maxTextLength;
 }
 
 // Function to process texts in batches
@@ -291,7 +291,14 @@ async function translateBatch(texts, sourceLang, targetLang, apiEndpoint) {
 }
 
 // Function to process all short texts in batches
-async function processBatchTranslations(records, lang, apiEndpoint, pro) {
+async function processBatchTranslations(
+    records,
+    lang,
+    apiEndpoint,
+    pro,
+    batchSize,
+    batchMaxTextLength
+) {
     console.log("\nProcessing short phrases in batches...");
 
     // Collect all untranslated short texts
@@ -305,7 +312,7 @@ async function processBatchTranslations(records, lang, apiEndpoint, pro) {
         if (
             sourceText &&
             !currentState.progress[sourceText] &&
-            isTextSuitableForBatch(sourceText) &&
+            isTextSuitableForBatch(sourceText, batchMaxTextLength) &&
             !seenTexts.has(sourceText) // Check for case-insensitive duplicates
         ) {
             shortTexts.push(sourceText);
@@ -323,10 +330,10 @@ async function processBatchTranslations(records, lang, apiEndpoint, pro) {
     );
 
     // Process texts in batches
-    for (let i = 0; i < shortTexts.length; i += MAX_BATCH_SIZE) {
-        const batch = shortTexts.slice(i, i + MAX_BATCH_SIZE);
+    for (let i = 0; i < shortTexts.length; i += batchSize) {
+        const batch = shortTexts.slice(i, i + batchSize);
         console.log(
-            `\nTranslating batch ${i / MAX_BATCH_SIZE + 1} (${
+            `\nTranslating batch ${i / batchSize + 1} (${
                 batch.length
             } phrases)...`
         );
@@ -388,6 +395,26 @@ async function translateProject() {
             type: "boolean",
             default: false,
         })
+        .option("skip-batch", {
+            description: "Skip batch processing",
+            type: "boolean",
+            default: false,
+        })
+        .option("batch-size", {
+            description: "Batch size",
+            type: "number",
+            default: MAX_BATCH_SIZE,
+        })
+        .option("batch-max-text-length", {
+            description: "Max text length",
+            type: "number",
+            default: MAX_TEXT_LENGTH,
+        })
+        .option("rebuild", {
+            description: "Rebuild translation based on progress files",
+            type: "boolean",
+            default: false,
+        })
         .help()
         .alias("help", "h")
         .example("$0 myproject fr", "Translate myproject to French")
@@ -397,7 +424,16 @@ async function translateProject() {
 
     // Handle positional arguments
     const [projectArg, langArg] = argv._;
-    const { project, lang, api, pro } = argv;
+    const {
+        project,
+        lang,
+        api,
+        pro,
+        skipBatch,
+        batchSize,
+        rebuild,
+        batchMaxTextLength,
+    } = argv;
     const projectName = project || projectArg;
     const targetLang = lang || langArg;
 
@@ -464,13 +500,29 @@ async function translateProject() {
                 currentState.progressPath
             );
 
-            // First pass: Process short phrases in batches
-            await processBatchTranslations(
-                currentState.records,
-                lang,
-                api,
-                pro
-            );
+            if (rebuild) {
+                for (const record of currentState.records) {
+                    if (
+                        !currentState.progress[
+                            record[currentState.config.baseLanguage]
+                        ]
+                    ) {
+                        record[lang] = null;
+                    }
+                }
+            }
+
+            if (!skipBatch) {
+                // First pass: Process short phrases in batches
+                await processBatchTranslations(
+                    currentState.records,
+                    lang,
+                    api,
+                    pro,
+                    batchSize,
+                    batchMaxTextLength
+                );
+            }
 
             // Second pass: Process remaining texts
             for (const record of currentState.records) {
