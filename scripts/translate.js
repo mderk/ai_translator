@@ -243,7 +243,7 @@ function isTextSuitableForBatch(text, maxTextLength) {
 }
 
 // Function to process texts in batches
-async function translateBatch(texts, sourceLang, targetLang, apiEndpoint) {
+async function translateBatch(texts, sourceLang, targetLang, apiEndpoint, pro) {
     // Join texts with newlines
     const batchText = texts.join("\n");
 
@@ -252,7 +252,8 @@ async function translateBatch(texts, sourceLang, targetLang, apiEndpoint) {
         batchText,
         sourceLang,
         targetLang,
-        apiEndpoint
+        apiEndpoint,
+        pro
     );
 
     // Split the result back into individual translations
@@ -343,7 +344,8 @@ async function processBatchTranslations(
                 batch,
                 currentState.config.baseLanguage,
                 lang,
-                apiEndpoint
+                apiEndpoint,
+                pro
             );
 
             // Save translations
@@ -375,26 +377,21 @@ async function translateProject() {
     const argv = yargs(hideBin(process.argv))
         .usage("Usage: $0 [project] [lang] [options]")
         .option("project", {
-            alias: "p",
             description: "Project name",
             type: "string",
         })
         .option("lang", {
-            alias: "l",
             description: "Target language code (optional)",
             type: "string",
         })
         .option("api", {
-            alias: "a",
             description: "API endpoint",
             type: "string",
             default: DEFAULT_API_ENDPOINT,
         })
-        .option("pro", {
-            description: "Use pro API endpoint",
-            type: "boolean",
-            default: false,
-        })
+        .boolean("pro")
+        .alias("pro", ["p"])
+        .describe("pro", "Use pro API endpoint")
         .option("skip-batch", {
             description: "Skip batch processing",
             type: "boolean",
@@ -434,6 +431,8 @@ async function translateProject() {
         rebuild,
         batchMaxTextLength,
     } = argv;
+
+    console.log("pro", pro);
     const projectName = project || projectArg;
     const targetLang = lang || langArg;
 

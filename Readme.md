@@ -219,7 +219,7 @@ yarn translate --project <project-name> [--lang <language-code>] [--api <api-end
 
 -   `project-name` (required): Name of the project to translate
 -   `language-code` (optional): Specific language to translate. If omitted, translates all languages
--   `--api`, `-a` (optional): Custom API endpoint (defaults to http://localhost:1188)
+-   `--api` (optional): Custom API endpoint (defaults to http://localhost:1188)
 -   `--pro`, `-p` (optional): Use pro API endpoint (defaults to false)
 
 #### Examples
